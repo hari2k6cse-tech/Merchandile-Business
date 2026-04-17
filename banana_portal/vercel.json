@@ -1,0 +1,10 @@
+{
+  "buildCommand": "echo 'Frontend static site'",
+  "outputDirectory": "frontend",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}
