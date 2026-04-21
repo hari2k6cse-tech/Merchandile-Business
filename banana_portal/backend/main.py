@@ -2,21 +2,23 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from database import engine, Base, get_db
-from models import HarvestEntry
+from models import HarvestEntry, SellerPayment
 from schemas import (
     HarvestEntryCreate, HarvestEntryUpdate, HarvestEntryResponse,
+    SellerPaymentCreate, SellerPaymentResponse, SellerSummary,
     LoginRequest, LoginResponse
 )
 from typing import List
-import json
+from datetime import datetime
 
 # Create tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Banana Merchandise Portal API")
 
-# CORS middleware - Allow all origins including file://
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=".*",
@@ -25,42 +27,90 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Options handler for preflight requests
 @app.options("/{full_path:path}")
 async def preflight_handler(full_path: str):
     return JSONResponse(status_code=200, content={"message": "OK"})
+
+# ==================== HELPER FUNCTIONS ====================
+
+def normalize_seller_name(name: str) -> str:
+    """Normalize seller name for case-insensitive matching"""
+    return name.strip().lower()
+
+def calculate_seller_status(total_paid: float, total_expected: float) -> str:
+    """Calculate seller payment status"""
+    if total_paid >= total_expected:
+        return "முழுமையாக பணம் பெறப்பட்டது"
+    elif total_paid > 0:
+        return "ஓரளவு பணம் பெறப்பட்டது"
+    else:
+        return "வழங்கப்பட்டது"
+
+def update_seller_entry_statuses(db: Session, seller_name: str):
+    """Update all entries for a seller based on payment status"""
+    normalized_name = normalize_seller_name(seller_name)
+    
+    # Get all entries for this seller
+    entries = db.query(HarvestEntry).filter(
+        HarvestEntry.seller_name.ilike(f"%{seller_name}%")
+    ).all()
+    
+    if not entries:
+        return
+    
+    # Calculate totals
+    total_expected = sum(e.expected_amount for e in entries)
+    
+    # Get total paid
+    payments = db.query(SellerPayment).filter(
+        SellerPayment.seller_name.ilike(f"%{seller_name}%")
+    ).all()
+    total_paid = sum(p.amount_paid for p in payments)
+    
+    # Determine status
+    new_status = calculate_seller_status(total_paid, total_expected)
+    
+    # Update all entries
+    for entry in entries:
+        entry.status = new_status
+    
+    db.commit()
 
 # ==================== AUTHENTICATION ====================
 
 @app.post("/api/login", response_model=LoginResponse)
 def login(credentials: LoginRequest):
-    """Simple login endpoint"""
-    if credentials.username == "Balu" and credentials.password == "Balu":
+    if credentials.username == "hari" and credentials.password == "hari":
         return LoginResponse(
             success=True,
-            message="Login successful",
+            message="உள்நுழைவு வெற்றிகரமாக",
             token="balu_token_12345"
         )
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
+            detail="தவறான பயனர்பெயர் அல்லது கடவுச்சொல்"
         )
 
 # ==================== HARVEST ENTRY CRUD ====================
 
 @app.post("/api/entries", response_model=HarvestEntryResponse)
 def create_entry(entry: HarvestEntryCreate, db: Session = Depends(get_db)):
-    """Create new harvest entry"""
+    """Create new harvest entry - status auto-set to வழங்கப்பட்டது"""
     try:
-        db_entry = HarvestEntry(**entry.dict())
+        db_entry = HarvestEntry(
+            **entry.dict(),
+            status="வழங்கப்பட்டது"
+        )
         db.add(db_entry)
         db.commit()
         db.refresh(db_entry)
         
-        response = HarvestEntryResponse.from_orm(db_entry)
-        response.profit_loss = db_entry.get_profit_loss()
-        return response
+        # Check if this seller now has payments, update status if needed
+        update_seller_entry_statuses(db, entry.seller_name)
+        db.refresh(db_entry)
+        
+        return HarvestEntryResponse.from_orm(db_entry)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -70,12 +120,7 @@ def get_all_entries(db: Session = Depends(get_db)):
     """Get all harvest entries"""
     try:
         entries = db.query(HarvestEntry).all()
-        results = []
-        for entry in entries:
-            response = HarvestEntryResponse.from_orm(entry)
-            response.profit_loss = entry.get_profit_loss()
-            results.append(response)
-        return results
+        return [HarvestEntryResponse.from_orm(e) for e in entries]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -85,11 +130,8 @@ def get_entry(entry_id: int, db: Session = Depends(get_db)):
     try:
         entry = db.query(HarvestEntry).filter(HarvestEntry.id == entry_id).first()
         if not entry:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        
-        response = HarvestEntryResponse.from_orm(entry)
-        response.profit_loss = entry.get_profit_loss()
-        return response
+            raise HTTPException(status_code=404, detail="பதிவு காணப்படவில்லை")
+        return HarvestEntryResponse.from_orm(entry)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -98,20 +140,18 @@ def update_entry(entry_id: int, entry: HarvestEntryUpdate, db: Session = Depends
     """Update harvest entry"""
     try:
         db_entry = db.query(HarvestEntry).filter(HarvestEntry.id == entry_id).first()
-        if not db_entry:
-            raise HTTPException(status_code=404, detail="Entry not found")
+        if not entry:
+            raise HTTPException(status_code=404, detail="பதிவு காணப்படவில்லை")
         
         update_data = entry.dict(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_entry, field, value)
         
-        db.add(db_entry)
+        db_entry.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(db_entry)
         
-        response = HarvestEntryResponse.from_orm(db_entry)
-        response.profit_loss = db_entry.get_profit_loss()
-        return response
+        return HarvestEntryResponse.from_orm(db_entry)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -122,11 +162,157 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db)):
     try:
         db_entry = db.query(HarvestEntry).filter(HarvestEntry.id == entry_id).first()
         if not db_entry:
-            raise HTTPException(status_code=404, detail="Entry not found")
+            raise HTTPException(status_code=404, detail="பதிவு காணப்படவில்லை")
         
         db.delete(db_entry)
         db.commit()
-        return {"message": "Entry deleted successfully"}
+        
+        return {"message": "பதிவு நீக்கப்பட்டது"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ==================== SELLER ENDPOINTS ====================
+
+@app.get("/api/sellers")
+def get_all_sellers(db: Session = Depends(get_db)):
+    """Get all unique sellers with aggregated stats"""
+    try:
+        # Get all unique sellers
+        sellers = db.query(HarvestEntry.seller_name).distinct().all()
+        result = []
+        
+        for (seller_name,) in sellers:
+            # Get entries
+            entries = db.query(HarvestEntry).filter(
+                HarvestEntry.seller_name.ilike(f"%{seller_name}%")
+            ).all()
+            
+            # Get payments
+            payments = db.query(SellerPayment).filter(
+                SellerPayment.seller_name.ilike(f"%{seller_name}%")
+            ).all()
+            
+            total_expected = sum(e.expected_amount for e in entries)
+            total_paid = sum(p.amount_paid for p in payments)
+            pending = total_expected - total_paid
+            status_val = calculate_seller_status(total_paid, total_expected)
+            
+            result.append({
+                "seller_name": seller_name,
+                "total_entries": len(entries),
+                "total_expected": total_expected,
+                "total_paid": total_paid,
+                "pending_amount": pending,
+                "status": status_val
+            })
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/sellers/{seller_name}/summary", response_model=SellerSummary)
+def get_seller_summary(seller_name: str, db: Session = Depends(get_db)):
+    """Get detailed summary for a seller"""
+    try:
+        entries = db.query(HarvestEntry).filter(
+            HarvestEntry.seller_name.ilike(f"%{seller_name}%")
+        ).all()
+        
+        payments = db.query(SellerPayment).filter(
+            SellerPayment.seller_name.ilike(f"%{seller_name}%")
+        ).all()
+        
+        total_expected = sum(e.expected_amount for e in entries)
+        total_paid = sum(p.amount_paid for p in payments)
+        pending = total_expected - total_paid
+        status_val = calculate_seller_status(total_paid, total_expected)
+        
+        return SellerSummary(
+            seller_name=seller_name,
+            total_entries=len(entries),
+            total_expected=total_expected,
+            total_paid=total_paid,
+            pending_amount=pending,
+            status=status_val,
+            entries=[HarvestEntryResponse.from_orm(e) for e in entries],
+            payments=[SellerPaymentResponse.from_orm(p) for p in payments]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/sellers/{seller_name}/payment", response_model=SellerPaymentResponse)
+def record_seller_payment(seller_name: str, payment: SellerPaymentCreate, db: Session = Depends(get_db)):
+    """Record a payment from a seller"""
+    try:
+        if payment.amount_paid <= 0:
+            raise HTTPException(status_code=400, detail="தொகை பூஜ்ஜியத்தை விட அதிகமாக இருக்க வேண்டும்")
+        
+        # Get seller's entries to validate pending amount
+        entries = db.query(HarvestEntry).filter(
+            HarvestEntry.seller_name.ilike(f"%{seller_name}%")
+        ).all()
+        
+        payments = db.query(SellerPayment).filter(
+            SellerPayment.seller_name.ilike(f"%{seller_name}%")
+        ).all()
+        
+        total_expected = sum(e.expected_amount for e in entries)
+        total_paid = sum(p.amount_paid for p in payments)
+        pending = total_expected - total_paid
+        
+        if payment.amount_paid > pending:
+            raise HTTPException(status_code=400, detail="தொகை நிலுவையை தாண்ட முடியாது")
+        
+        # Create payment record
+        db_payment = SellerPayment(
+            seller_name=seller_name,
+            amount_paid=payment.amount_paid,
+            payment_date=payment.payment_date,
+            notes=payment.notes
+        )
+        db.add(db_payment)
+        db.commit()
+        db.refresh(db_payment)
+        
+        # Update all entries for this seller
+        update_seller_entry_statuses(db, seller_name)
+        
+        return SellerPaymentResponse.from_orm(db_payment)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/sellers/{seller_name}/payments", response_model=List[SellerPaymentResponse])
+def get_seller_payments(seller_name: str, db: Session = Depends(get_db)):
+    """Get payment history for a seller"""
+    try:
+        payments = db.query(SellerPayment).filter(
+            SellerPayment.seller_name.ilike(f"%{seller_name}%")
+        ).all()
+        return [SellerPaymentResponse.from_orm(p) for p in payments]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/sellers/{seller_name}/payment/{payment_id}")
+def delete_seller_payment(seller_name: str, payment_id: int, db: Session = Depends(get_db)):
+    """Delete a payment record"""
+    try:
+        payment = db.query(SellerPayment).filter(SellerPayment.id == payment_id).first()
+        if not payment:
+            raise HTTPException(status_code=404, detail="பணம் பெற்ற பதிவு காணப்படவில்லை")
+        
+        db.delete(payment)
+        db.commit()
+        
+        # Update seller statuses
+        update_seller_entry_statuses(db, seller_name)
+        
+        return {"message": "பணம் பெற்ற பதிவு நீக்கப்பட்டது"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -134,38 +320,64 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db)):
 # ==================== ANALYTICS ====================
 
 @app.get("/api/analytics/summary")
-def get_summary(db: Session = Depends(get_db)):
-    """Get summary analytics"""
+def get_analytics_summary(db: Session = Depends(get_db)):
+    """Get dashboard summary stats"""
     try:
         entries = db.query(HarvestEntry).all()
+        payments = db.query(SellerPayment).all()
         
         total_entries = len(entries)
-        total_expected = sum(e.expected_amount or 0 for e in entries)
-        total_actual = sum(e.actual_amount or 0 for e in entries)
-        net_profit_loss = total_actual - total_expected
+        total_expected = sum(e.expected_amount for e in entries)
+        total_paid = sum(p.amount_paid for p in payments)
+        total_pending = total_expected - total_paid
         
         return {
             "total_entries": total_entries,
-            "expected_revenue": round(total_expected, 2),
-            "actual_received": round(total_actual, 2),
-            "net_profit_loss": round(net_profit_loss, 2)
+            "total_expected": total_expected,
+            "total_paid": total_paid,
+            "total_pending": total_pending
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/api/analytics/chart-data")
-def get_chart_data(db: Session = Depends(get_db)):
-    """Get chart data for expected vs actual"""
+@app.get("/api/analytics/seller-chart-data")
+def get_seller_chart_data(db: Session = Depends(get_db)):
+    """Get chart data for sellers - pending vs paid"""
     try:
-        entries = db.query(HarvestEntry).order_by(HarvestEntry.id.desc()).limit(10).all()
-        entries = list(reversed(entries))  # Reverse to show chronologically
+        sellers = db.query(HarvestEntry.seller_name).distinct().all()
         
-        return {
-            "labels": [f"Entry {e.id}" for e in entries],
-            "expected": [e.expected_amount or 0 for e in entries],
-            "actual": [e.actual_amount or 0 for e in entries],
-            "dates": [e.date for e in entries]
-        }
+        data = []
+        for (seller_name,) in sellers:
+            entries = db.query(HarvestEntry).filter(
+                HarvestEntry.seller_name.ilike(f"%{seller_name}%")
+            ).all()
+            payments = db.query(SellerPayment).filter(
+                SellerPayment.seller_name.ilike(f"%{seller_name}%")
+            ).all()
+            
+            total_expected = sum(e.expected_amount for e in entries)
+            total_paid = sum(p.amount_paid for p in payments)
+            
+            data.append({
+                "seller": seller_name,
+                "expected": total_expected,
+                "paid": total_paid,
+                "pending": total_expected - total_paid
+            })
+        
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/analytics/variety-data")
+def get_variety_chart_data(db: Session = Depends(get_db)):
+    """Get chart data for banana varieties"""
+    try:
+        varieties = db.query(HarvestEntry.variety, 
+                            func.sum(HarvestEntry.banana_count).label("total_count")
+                           ).group_by(HarvestEntry.variety).all()
+        
+        return [{"variety": v[0], "count": v[1] or 0} for v in varieties]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -177,13 +389,9 @@ def get_status_breakdown(db: Session = Depends(get_db)):
         
         status_counts = {}
         for entry in entries:
-            status = entry.status
-            status_counts[status] = status_counts.get(status, 0) + 1
+            status_counts[entry.status] = status_counts.get(entry.status, 0) + 1
         
-        return {
-            "labels": list(status_counts.keys()),
-            "data": list(status_counts.values())
-        }
+        return [{"status": k, "count": v} for k, v in status_counts.items()]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -191,7 +399,6 @@ def get_status_breakdown(db: Session = Depends(get_db)):
 
 @app.get("/api/health")
 def health_check():
-    """Health check endpoint"""
     return {"status": "OK"}
 
 if __name__ == "__main__":
