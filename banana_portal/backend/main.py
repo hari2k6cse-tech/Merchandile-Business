@@ -33,6 +33,26 @@ async def preflight_handler(full_path: str):
 
 # ==================== HELPER FUNCTIONS ====================
 
+def serialize_entry(entry: HarvestEntry) -> HarvestEntryResponse:
+    """Build a response payload with computed profit/loss."""
+    return HarvestEntryResponse(
+        id=entry.id,
+        date=entry.date,
+        variety=entry.variety,
+        banana_count=entry.banana_count,
+        weight_kg=entry.weight_kg,
+        number_of_vehicles=entry.number_of_vehicles,
+        seller_name=entry.seller_name,
+        expected_amount=entry.expected_amount,
+        actual_amount=entry.actual_amount,
+        payment_mode=entry.payment_mode,
+        status=entry.status,
+        notes=entry.notes,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+        profit_loss=(entry.actual_amount or 0) - entry.expected_amount,
+    )
+
 def calculate_seller_status(total_paid: float, total_expected: float) -> str:
     """Calculate seller payment status"""
     if total_paid >= total_expected:
@@ -101,7 +121,7 @@ def create_entry(entry: HarvestEntryCreate, db: Session = Depends(get_db)):
         update_seller_entry_statuses(db, entry.seller_name)
         db.refresh(db_entry)
         
-        return HarvestEntryResponse.from_orm(db_entry)
+        return serialize_entry(db_entry)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -111,7 +131,7 @@ def get_all_entries(db: Session = Depends(get_db)):
     """Get all harvest entries"""
     try:
         entries = db.query(HarvestEntry).all()
-        return [HarvestEntryResponse.from_orm(e) for e in entries]
+        return [serialize_entry(e) for e in entries]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -122,7 +142,7 @@ def get_entry(entry_id: int, db: Session = Depends(get_db)):
         entry = db.query(HarvestEntry).filter(HarvestEntry.id == entry_id).first()
         if not entry:
             raise HTTPException(status_code=404, detail="பதிவு காணப்படவில்லை")
-        return HarvestEntryResponse.from_orm(entry)
+        return serialize_entry(entry)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -142,7 +162,7 @@ def update_entry(entry_id: int, entry: HarvestEntryUpdate, db: Session = Depends
         db.commit()
         db.refresh(db_entry)
         
-        return HarvestEntryResponse.from_orm(db_entry)
+        return serialize_entry(db_entry)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

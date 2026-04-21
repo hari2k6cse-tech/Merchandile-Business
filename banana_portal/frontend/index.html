@@ -177,6 +177,31 @@
             border-radius: 5px;
         }
 
+        .form-feedback {
+            display: none;
+            margin-bottom: 18px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .form-feedback.show {
+            display: block;
+        }
+
+        .form-feedback.success {
+            background: #dff5e8;
+            color: #1f7a45;
+            border: 1px solid #b7e7ca;
+        }
+
+        .form-feedback.error {
+            background: #fde2df;
+            color: #b03a2e;
+            border: 1px solid #f5b7b1;
+        }
+
         /* ========== DASHBOARD ========== */
         .dashboard-wrapper {
             visibility: hidden;
@@ -293,6 +318,10 @@
             font-weight: 700;
             color: #2d5016;
             margin-bottom: 5px;
+        }
+
+        .card-value.negative {
+            color: #c0392b;
         }
 
         .card-subtitle {
@@ -695,6 +724,7 @@
             <div class="hidden-section show" id="formSection">
                 <div class="form-card">
                     <h3 class="form-title" id="formTitle">Add New Harvest Entry</h3>
+                    <div class="form-feedback" id="formFeedback"></div>
                     <form id="harvestForm">
                         <input type="hidden" id="entryId">
 
@@ -954,6 +984,7 @@
             e.preventDefault();
 
             const entryId = document.getElementById("entryId").value;
+            const isEdit = Boolean(entryId);
             const formData = {
                 date: document.getElementById("date").value,
                 variety: document.getElementById("variety").value,
@@ -970,7 +1001,7 @@
 
             try {
                 let response;
-                if (entryId) {
+                if (isEdit) {
                     response = await fetch(`${API_URL}/entries/${entryId}`, {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
@@ -985,14 +1016,21 @@
                 }
 
                 if (response.ok) {
+                    const savedEntry = await response.json();
                     clearForm();
-                    loadAllData();
+                    await loadAllData();
+                    showFormFeedback(
+                        isEdit
+                            ? `Entry #${savedEntry.id} updated successfully.`
+                            : `Entry #${savedEntry.id} saved successfully.`,
+                        "success"
+                    );
                 } else {
                     const error = await response.json();
-                    alert("Error: " + error.detail);
+                    showFormFeedback("Error: " + error.detail, "error");
                 }
             } catch (error) {
-                alert("Connection error: " + error.message);
+                showFormFeedback("Connection error: " + error.message, "error");
             }
         });
 
@@ -1006,6 +1044,19 @@
 
         function cancelEdit() {
             clearForm();
+            hideFormFeedback();
+        }
+
+        function showFormFeedback(message, type = "success") {
+            const feedback = document.getElementById("formFeedback");
+            feedback.textContent = message;
+            feedback.className = `form-feedback ${type} show`;
+        }
+
+        function hideFormFeedback() {
+            const feedback = document.getElementById("formFeedback");
+            feedback.textContent = "";
+            feedback.className = "form-feedback";
         }
 
         // ==================== DATA LOADING ====================
@@ -1022,7 +1073,10 @@
                 document.getElementById("totalEntries").textContent = data.total_entries;
                 document.getElementById("expectedRevenue").textContent = "₹" + data.expected_revenue.toLocaleString('en-IN');
                 document.getElementById("actualReceived").textContent = "₹" + data.actual_received.toLocaleString('en-IN');
-                document.getElementById("netProfitLoss").textContent = data.net_profit_loss >= 0 ? "₹" + data.net_profit_loss.toLocaleString('en-IN') : "—";
+                const netProfitLoss = document.getElementById("netProfitLoss");
+                const sign = data.net_profit_loss < 0 ? "-₹" : "₹";
+                netProfitLoss.textContent = sign + Math.abs(data.net_profit_loss).toLocaleString('en-IN');
+                netProfitLoss.classList.toggle("negative", data.net_profit_loss < 0);
             } catch (error) {
                 console.error("Error loading summary:", error);
             }
@@ -1103,10 +1157,11 @@
                 try {
                     const response = await fetch(`${API_URL}/entries/${id}`, { method: "DELETE" });
                     if (response.ok) {
-                        loadAllData();
+                        await loadAllData();
+                        showFormFeedback(`Entry #${id} deleted successfully.`, "success");
                     }
                 } catch (error) {
-                    alert("Error deleting entry: " + error.message);
+                    showFormFeedback("Error deleting entry: " + error.message, "error");
                 }
             }
         }
