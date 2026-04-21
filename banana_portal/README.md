@@ -38,13 +38,13 @@ The API will be available at: `http://localhost:8000`
 1. Open `frontend/index.html` in your web browser
 
 2. Login with:
-   - Username: `Balu`
-   - Password: `Balu`
+   - Username: `hari`
+   - Password: `hari`
 
 ## Default Credentials
 
-- **Username:** Balu
-- **Password:** Balu
+- **Username:** hari
+- **Password:** hari
 
 ## Project Structure
 

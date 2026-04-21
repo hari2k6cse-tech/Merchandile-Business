@@ -33,10 +33,6 @@ async def preflight_handler(full_path: str):
 
 # ==================== HELPER FUNCTIONS ====================
 
-def normalize_seller_name(name: str) -> str:
-    """Normalize seller name for case-insensitive matching"""
-    return name.strip().lower()
-
 def calculate_seller_status(total_paid: float, total_expected: float) -> str:
     """Calculate seller payment status"""
     if total_paid >= total_expected:
@@ -48,8 +44,6 @@ def calculate_seller_status(total_paid: float, total_expected: float) -> str:
 
 def update_seller_entry_statuses(db: Session, seller_name: str):
     """Update all entries for a seller based on payment status"""
-    normalized_name = normalize_seller_name(seller_name)
-    
     # Get all entries for this seller
     entries = db.query(HarvestEntry).filter(
         HarvestEntry.seller_name.ilike(f"%{seller_name}%")
@@ -84,7 +78,7 @@ def login(credentials: LoginRequest):
         return LoginResponse(
             success=True,
             message="உள்நுழைவு வெற்றிகரமாக",
-            token="balu_token_12345"
+            token="hari_token_12345"
         )
     else:
         raise HTTPException(
@@ -98,10 +92,7 @@ def login(credentials: LoginRequest):
 def create_entry(entry: HarvestEntryCreate, db: Session = Depends(get_db)):
     """Create new harvest entry - status auto-set to வழங்கப்பட்டது"""
     try:
-        db_entry = HarvestEntry(
-            **entry.dict(),
-            status="வழங்கப்பட்டது"
-        )
+        db_entry = HarvestEntry(**entry.dict())
         db.add(db_entry)
         db.commit()
         db.refresh(db_entry)
@@ -328,14 +319,19 @@ def get_analytics_summary(db: Session = Depends(get_db)):
         
         total_entries = len(entries)
         total_expected = sum(e.expected_amount for e in entries)
+        total_actual = sum((e.actual_amount or 0) for e in entries)
         total_paid = sum(p.amount_paid for p in payments)
         total_pending = total_expected - total_paid
+        net_profit_loss = total_actual - total_expected
         
         return {
             "total_entries": total_entries,
             "total_expected": total_expected,
             "total_paid": total_paid,
-            "total_pending": total_pending
+            "total_pending": total_pending,
+            "expected_revenue": total_expected,
+            "actual_received": total_actual,
+            "net_profit_loss": net_profit_loss
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -369,6 +365,20 @@ def get_seller_chart_data(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/api/analytics/chart-data")
+def get_chart_data(db: Session = Depends(get_db)):
+    """Get chart data in the shape expected by the current frontend."""
+    try:
+        entries = db.query(HarvestEntry).order_by(HarvestEntry.date.asc(), HarvestEntry.id.asc()).all()
+
+        return {
+            "labels": [f"{entry.date} - {entry.seller_name}" for entry in entries],
+            "expected": [entry.expected_amount for entry in entries],
+            "actual": [(entry.actual_amount or 0) for entry in entries]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/api/analytics/variety-data")
 def get_variety_chart_data(db: Session = Depends(get_db)):
     """Get chart data for banana varieties"""
@@ -391,7 +401,12 @@ def get_status_breakdown(db: Session = Depends(get_db)):
         for entry in entries:
             status_counts[entry.status] = status_counts.get(entry.status, 0) + 1
         
-        return [{"status": k, "count": v} for k, v in status_counts.items()]
+        items = [{"status": k, "count": v} for k, v in status_counts.items()]
+        return {
+            "labels": [item["status"] for item in items],
+            "data": [item["count"] for item in items],
+            "items": items
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -6,7 +6,7 @@
 
 A complete, end-to-end web application with:
 - ✓ Professional UI with banana theme (green & yellow gradient)
-- ✓ Secure login system (Username: Balu, Password: Balu)
+- ✓ Secure login system (Username: hari, Password: hari)
 - ✓ FastAPI backend with SQLite database
 - ✓ Real-time analytics dashboard
 - ✓ Harvest entry management (CRUD operations)
@@ -71,8 +71,8 @@ start chrome "file:///c:/Hari/Merchandile%20Business/banana_portal/frontend/inde
 
 ### 3. Login
 
-- **Username:** Balu
-- **Password:** Balu
+- **Username:** hari
+- **Password:** hari
 
 ---
 
@@ -167,8 +167,8 @@ start chrome "file:///c:/Hari/Merchandile%20Business/banana_portal/frontend/inde
 ```
 POST /api/login
 {
-  "username": "Balu",
-  "password": "Balu"
+  "username": "hari",
+  "password": "hari"
 }
 ```
 
@@ -304,8 +304,8 @@ pip install fastapi uvicorn sqlalchemy pydantic python-multipart
 
 ### Issue: Login fails
 **Solution:** Use exact credentials:
-- Username: `Balu` (case-sensitive)
-- Password: `Balu` (case-sensitive)
+- Username: `hari` (case-sensitive)
+- Password: `hari` (case-sensitive)
 
 ---
 

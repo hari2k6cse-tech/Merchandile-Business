@@ -24,3 +24,15 @@ class HarvestEntry(Base):
         if self.actual_amount is None:
             return 0
         return self.actual_amount - self.expected_amount
+
+
+class SellerPayment(Base):
+    __tablename__ = "seller_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    seller_name = Column(String, index=True, nullable=False)
+    amount_paid = Column(Float, nullable=False)
+    payment_date = Column(String, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

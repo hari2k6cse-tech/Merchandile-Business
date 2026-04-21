@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 class HarvestEntryCreate(BaseModel):
@@ -56,3 +56,33 @@ class LoginResponse(BaseModel):
     success: bool
     message: str
     token: Optional[str] = None
+
+
+class SellerPaymentCreate(BaseModel):
+    amount_paid: float
+    payment_date: str
+    notes: Optional[str] = None
+
+
+class SellerPaymentResponse(BaseModel):
+    id: int
+    seller_name: str
+    amount_paid: float
+    payment_date: str
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SellerSummary(BaseModel):
+    seller_name: str
+    total_entries: int
+    total_expected: float
+    total_paid: float
+    pending_amount: float
+    status: str
+    entries: List[HarvestEntryResponse]
+    payments: List[SellerPaymentResponse]

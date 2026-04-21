@@ -5,9 +5,15 @@ Tests all endpoints and validates the system
 
 import requests
 import json
+import sys
 from datetime import datetime
 
 API_URL = "http://localhost:8000/api"
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 class Colors:
     GREEN = '\033[92m'
@@ -49,7 +55,7 @@ def test_login():
     
     # Correct credentials
     print_info("Testing with correct credentials...")
-    payload = {"username": "Balu", "password": "Balu"}
+    payload = {"username": "hari", "password": "hari"}
     response = requests.post(f"{API_URL}/login", json=payload)
     
     if response.status_code == 200:

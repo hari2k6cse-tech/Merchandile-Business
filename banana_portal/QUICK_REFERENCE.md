@@ -11,7 +11,7 @@ python main.py
 start chrome "file:///c:/Hari/Merchandile%20Business/banana_portal/frontend/index.html"
 ```
 
-**Login:** `Balu` / `Balu`
+**Login:** `hari` / `hari`
 
 ---
 
@@ -122,7 +122,7 @@ curl http://localhost:8000/api/analytics/status-breakdown
 | Issue | Solution |
 |-------|----------|
 | Backend won't start | Check if port 8000 is free |
-| Login fails | Use exact: Username `Balu`, Password `Balu` |
+| Login fails | Use exact: Username `hari`, Password `hari` |
 | Charts blank | Refresh browser (Ctrl+F5) |
 | No connection to backend | Ensure `python main.py` is running |
 | Form won't submit | Fill all required fields (marked with *) |
