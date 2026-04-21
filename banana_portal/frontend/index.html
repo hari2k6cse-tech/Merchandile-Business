@@ -121,6 +121,52 @@
             box-shadow: 0 10px 25px rgba(253, 185, 19, 0.3);
         }
 
+        .login-btn:disabled {
+            cursor: wait;
+            opacity: 0.9;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .login-btn.loading {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .login-spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-top-color: #ffffff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .login-status {
+            min-height: 22px;
+            margin-top: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #2d5016;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .login-status.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         .error-message {
             color: #e74c3c;
             font-size: 14px;
@@ -585,7 +631,10 @@
                     <label>PASSWORD</label>
                     <input type="password" id="password" placeholder="Enter your password" required>
                 </div>
-                <button type="submit" class="login-btn">Sign In</button>
+                <button type="submit" class="login-btn" id="loginButton">
+                    <span class="login-btn-text">Sign In</span>
+                </button>
+                <div class="login-status" id="loginStatus" aria-live="polite"></div>
                 <div class="error-message" id="loginError"></div>
             </form>
         </div>
@@ -792,12 +841,16 @@
         let currentTab = "form";
         let barChart = null;
         let donutChart = null;
+        let loginInProgress = false;
 
         // ==================== LOGIN ====================
         document.getElementById("loginForm").addEventListener("submit", async (e) => {
             e.preventDefault();
+            if (loginInProgress) return;
+
             const username = document.getElementById("username").value;
             const password = document.getElementById("password").value;
+            setLoginLoading(true);
 
             try {
                 const response = await fetch(`${API_URL}/login`, {
@@ -810,6 +863,7 @@
                 const data = await response.json();
 
                 if (response.ok && data.success) {
+                    showLoginStatus("Login successful. Opening dashboard...");
                     localStorage.setItem("token", data.token);
                     document.getElementById("loginWrapper").classList.remove("show");
                     document.getElementById("dashboardWrapper").classList.add("show");
@@ -820,6 +874,8 @@
                 }
             } catch (error) {
                 showLoginError("Connection error: " + error.message);
+            } finally {
+                setLoginLoading(false);
             }
         });
 
@@ -827,7 +883,40 @@
             const errorDiv = document.getElementById("loginError");
             errorDiv.textContent = message;
             errorDiv.style.display = "block";
+            hideLoginStatus();
             setTimeout(() => errorDiv.style.display = "none", 3000);
+        }
+
+        function showLoginStatus(message) {
+            const statusDiv = document.getElementById("loginStatus");
+            statusDiv.textContent = message;
+            statusDiv.classList.add("show");
+        }
+
+        function hideLoginStatus() {
+            const statusDiv = document.getElementById("loginStatus");
+            statusDiv.textContent = "";
+            statusDiv.classList.remove("show");
+        }
+
+        function setLoginLoading(isLoading) {
+            const loginButton = document.getElementById("loginButton");
+            const usernameInput = document.getElementById("username");
+            const passwordInput = document.getElementById("password");
+
+            loginInProgress = isLoading;
+            loginButton.disabled = isLoading;
+            usernameInput.disabled = isLoading;
+            passwordInput.disabled = isLoading;
+
+            if (isLoading) {
+                loginButton.classList.add("loading");
+                loginButton.innerHTML = '<span class="login-spinner" aria-hidden="true"></span><span class="login-btn-text">Signing In...</span>';
+                showLoginStatus("Checking credentials and loading your dashboard...");
+            } else {
+                loginButton.classList.remove("loading");
+                loginButton.innerHTML = '<span class="login-btn-text">Sign In</span>';
+            }
         }
 
         function logout() {
@@ -835,6 +924,8 @@
             document.getElementById("dashboardWrapper").classList.remove("show");
             document.getElementById("loginWrapper").classList.add("show");
             document.getElementById("loginForm").reset();
+            hideLoginStatus();
+            setLoginLoading(false);
         }
 
         // ==================== TAB SWITCHING ====================
